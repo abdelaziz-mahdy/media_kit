@@ -1180,7 +1180,7 @@ class libmpvPlayer extends PlatformPlayer {
           }
         }
       }
-      if (prop.ref.name.cast<Utf8>().toDartString() == 'core-idle' &&
+      if (prop.ref.name.cast<Utf8>().toDartString() == 'paused-for-cache' &&
           prop.ref.format == generated.mpv_format.MPV_FORMAT_FLAG) {
         final buffering =
             (prop.ref.data.cast<Int8>().value != 0 && state.playing);
