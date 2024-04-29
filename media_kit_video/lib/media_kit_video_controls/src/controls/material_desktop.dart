@@ -67,6 +67,9 @@ class MaterialDesktopVideoControlsThemeData {
   /// Whether to hide mouse on controls removal.(will need to move the mouse to be hidden check issue: https://github.com/flutter/flutter/issues/76622) works on macos without moving the mouse
   final bool hideMouseOnControlsRemoval;
 
+  /// Whether to toggle play and pause on tap.
+  final bool playAndPauseOnTap;
+
   /// Keyboards shortcuts.
   final Map<ShortcutActivator, VoidCallback>? keyboardShortcuts;
 
@@ -182,6 +185,7 @@ class MaterialDesktopVideoControlsThemeData {
     this.automaticallyImplySkipNextButton = true,
     this.automaticallyImplySkipPreviousButton = true,
     this.toggleFullscreenOnDoublePress = true,
+    this.playAndPauseOnTap = true,
     this.modifyVolumeOnScroll = true,
     this.keyboardShortcuts,
     this.visibleOnMount = false,
@@ -232,6 +236,7 @@ class MaterialDesktopVideoControlsThemeData {
     bool? automaticallyImplySkipNextButton,
     bool? automaticallyImplySkipPreviousButton,
     bool? toggleFullscreenOnDoublePress,
+    bool? playAndPauseOnTap,
     bool? modifyVolumeOnScroll,
     Map<ShortcutActivator, VoidCallback>? keyboardShortcuts,
     bool? visibleOnMount,
@@ -274,6 +279,7 @@ class MaterialDesktopVideoControlsThemeData {
               this.automaticallyImplySkipPreviousButton,
       toggleFullscreenOnDoublePress:
           toggleFullscreenOnDoublePress ?? this.toggleFullscreenOnDoublePress,
+      playAndPauseOnTap: playAndPauseOnTap ?? this.playAndPauseOnTap,
       modifyVolumeOnScroll: modifyVolumeOnScroll ?? this.modifyVolumeOnScroll,
       keyboardShortcuts: keyboardShortcuts ?? this.keyboardShortcuts,
       visibleOnMount: visibleOnMount ?? this.visibleOnMount,
@@ -595,6 +601,24 @@ class _MaterialDesktopVideoControlsState
                     }
                   : null,
               child: GestureDetector(
+                onTapDown: !_theme(context).playAndPauseOnTap
+                    ? null
+                    : (TapDownDetails details) {
+                        final RenderBox box =
+                            context.findRenderObject() as RenderBox;
+                        final Offset localPosition =
+                            box.globalToLocal(details.globalPosition);
+                        const double tapPadding = 10.0;
+                        if (!mount ||
+                            localPosition.dy <
+                                box.size.height -
+                                    subtitleVerticalShiftOffset -
+                                    tapPadding) {
+                          // Only play and pause when the bottom seek bar is visible
+                          // and when clicking outside of the bottom seek bar region
+                          controller(context).player.playOrPause();
+                        }
+                      },
                 onTapUp: !_theme(context).toggleFullscreenOnDoublePress
                     ? null
                     : (e) {
@@ -605,6 +629,7 @@ class _MaterialDesktopVideoControlsState
                           toggleFullscreen(context);
                         }
                       },
+
                 onPanUpdate: _theme(context).modifyVolumeOnScroll
                     ? (e) {
                         if (e.delta.dy > 0) {
