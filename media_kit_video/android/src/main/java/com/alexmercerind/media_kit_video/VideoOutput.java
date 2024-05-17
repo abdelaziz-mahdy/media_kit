@@ -15,6 +15,8 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 import android.view.Surface;
+import android.view.SurfaceHolder;
+import android.view.SurfaceView;
 import android.view.View;
 import android.widget.FrameLayout;
 
@@ -31,23 +33,19 @@ import io.flutter.embedding.engine.FlutterJNI;
 import io.flutter.plugin.common.MethodChannel;
 import io.flutter.view.TextureRegistry;
 
-
 public class VideoOutput {
     public long id = 0;
     public long wid = 0;
 
     private Surface surface;
     private final TextureRegistry.SurfaceProducer surfaceProducer;
-
     private boolean flutterJNIAPIAvailable;
     private final Method newGlobalObjectRef;
     private final Method deleteGlobalObjectRef;
     private boolean waitUntilFirstFrameRenderedNotify;
-
     private long handle;
     private MethodChannel channelReference;
     private TextureRegistry textureRegistryReference;
-
     private final Object lock = new Object();
 
     VideoOutput(long handle, MethodChannel channelReference, TextureRegistry textureRegistryReference) {
@@ -69,8 +67,8 @@ public class VideoOutput {
             throw new RuntimeException("Failed to initialize com.alexmercerind.media_kit_video.VideoOutput.");
         }
 
-        surfaceProducer =
-            textureRegistryReference.createSurfaceProducer();
+        surfaceProducer = textureRegistryReference.createSurfaceProducer();
+
         // If we call setOnFrameAvailableListener after creating surfaceProducer, the texture won't be displayed inside Flutter UI, because callback set by us will override the Flutter engine's own registered callback:
         // https://github.com/flutter/engine/blob/f47e864f2dcb9c299a3a3ed22300a1dcacbdf1fe/shell/platform/android/io/flutter/view/FlutterView.java#L942-L958
         try {
@@ -81,9 +79,26 @@ public class VideoOutput {
             e.printStackTrace();
         }
         Log.i("media_kit", String.format(Locale.ENGLISH, "flutterJNIAPIAvailable = %b", flutterJNIAPIAvailable));
-        if (flutterJNIAPIAvailable) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                surfaceProducer.surfaceTexture().setOnFrameAvailableListener((texture) -> {
+
+        SurfaceView surfaceView = new SurfaceView(MediaKitVideoPlugin.activity);
+        SurfaceHolder surfaceHolder = surfaceView.getHolder();
+        surfaceHolder.addCallback(new SurfaceHolder.Callback() {
+            @Override
+            public void surfaceCreated(SurfaceHolder holder) {
+                synchronized (lock) {
+                    surface = holder.getSurface();
+                }
+            }
+
+            @Override
+            public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
+                synchronized (lock) {
+                    surface = holder.getSurface();
+                    // surfaceProducer.setSize(width, height);
+                    // wid = createSurface();
+                   
+                    if (flutterJNIAPIAvailable) {
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                     synchronized (lock) {
                         try {
                             if (!waitUntilFirstFrameRenderedNotify) {
@@ -103,40 +118,58 @@ public class VideoOutput {
                             e.printStackTrace();
                         }
                     }
-                }, new Handler());
+                
             } else {
-                surfaceProducer.surfaceTexture().setOnFrameAvailableListener((texture) -> {
-                    synchronized (lock) {
-                        try {
-                            if (!waitUntilFirstFrameRenderedNotify) {
-                                waitUntilFirstFrameRenderedNotify = true;
-                                final HashMap<String, Object> data = new HashMap<>();
-                                data.put("handle", handle);
-                                channelReference.invokeMethod("VideoOutput.WaitUntilFirstFrameRenderedNotify", data);
-                                Log.i("media_kit", String.format(Locale.ENGLISH, "VideoOutput.WaitUntilFirstFrameRenderedNotify = %d", handle));
-                            }
+                synchronized (lock) {
+                         try{
+                        if (!waitUntilFirstFrameRenderedNotify) {
+                            waitUntilFirstFrameRenderedNotify = true;
+                            final HashMap<String, Object> data = new HashMap<>();
+                            data.put("handle", handle);
+                            channelReference.invokeMethod("VideoOutput.WaitUntilFirstFrameRenderedNotify", data);
+                            Log.i("media_kit", String.format(Locale.ENGLISH, "VideoOutput.WaitUntilFirstFrameRenderedNotify = %d", handle));
+                        }
 
-                            FlutterJNI flutterJNI = null;
-                            while (flutterJNI == null) {
-                                flutterJNI = getFlutterJNIReference();
-                                flutterJNI.markTextureFrameAvailable(id);
-                            }
-                        } catch (Throwable e) {
+                        FlutterJNI flutterJNI = null;
+                        while (flutterJNI == null) {
+                            flutterJNI = getFlutterJNIReference();
+                            flutterJNI.markTextureFrameAvailable(id);
+                        }
+ } catch (Throwable e) {
                             e.printStackTrace();
+                        }}}
+                    } else {
+                        if (!waitUntilFirstFrameRenderedNotify) {
+                            waitUntilFirstFrameRenderedNotify = true;
+                            final HashMap<String, Object> data = new HashMap<>();
+                            data.put("id", id);
+                            data.put("wid", wid);
+                            data.put("handle", handle);
+                            channelReference.invokeMethod("VideoOutput.WaitUntilFirstFrameRenderedNotify", data);
                         }
                     }
-                });
+                }
             }
-        } else {
-            if (!waitUntilFirstFrameRenderedNotify) {
-                waitUntilFirstFrameRenderedNotify = true;
-                final HashMap<String, Object> data = new HashMap<>();
-                data.put("id", id);
-                data.put("wid", wid);
-                data.put("handle", handle);
-                channelReference.invokeMethod("VideoOutput.WaitUntilFirstFrameRenderedNotify", data);
+
+            @Override
+            public void surfaceDestroyed(SurfaceHolder holder) {
+                // synchronized (lock) {
+                //     if (surface != null) {
+                //         clearSurface();
+                //         surface.release();
+                //         surface = null;
+                //     }
+                //     if (wid != 0) {
+                //         try {
+                //             deleteGlobalObjectRef.invoke(null, wid);
+                //         } catch (Throwable e) {
+                //             e.printStackTrace();
+                //         }
+                //         wid = 0;
+                //     }
+                // }
             }
-        }
+        });
 
         try {
             id = surfaceProducer.id();
@@ -147,29 +180,30 @@ public class VideoOutput {
     }
 
     public void dispose() {
-        try {
-            surfaceProducer.release();
-        } catch (Throwable e) {
-            e.printStackTrace();
-        }
-        try {
+        synchronized (lock) {
+            try {
+                surfaceProducer.release();
+            } catch (Throwable e) {
+                e.printStackTrace();
+            }
+             try {
             surface.release();
         } catch (Throwable e) {
             e.printStackTrace();
         }
-        try {
-            final Handler handler = new Handler(Looper.getMainLooper());
-            handler.postDelayed(() -> {
-                try {
-                    // Invoke DeleteGlobalRef after a voluntary delay to eliminate possibility of libmpv referencing it sometime in the near future.
-                    deleteGlobalObjectRef.invoke(null, wid);
-                    Log.i("media_kit", String.format(Locale.ENGLISH, "com.alexmercerind.mediakitandroidhelper.MediaKitAndroidHelper.deleteGlobalObjectRef: %d", wid));
-                } catch (Throwable e) {
-                    e.printStackTrace();
-                }
-            }, 5000);
-        } catch (Throwable e) {
-            e.printStackTrace();
+            try {
+                final Handler handler = new Handler(Looper.getMainLooper());
+                handler.postDelayed(() -> {
+                    try {
+                        deleteGlobalObjectRef.invoke(null, wid);
+                        Log.i("media_kit", String.format(Locale.ENGLISH, "com.alexmercerind.mediakitandroidhelper.MediaKitAndroidHelper.deleteGlobalObjectRef: %d", wid));
+                    } catch (Throwable e) {
+                        e.printStackTrace();
+                    }
+                }, 5000);
+            } catch (Throwable e) {
+                e.printStackTrace();
+            }
         }
     }
 
@@ -210,9 +244,10 @@ public class VideoOutput {
 
     private void clearSurface() {
         try {
-            final Canvas canvas = surface.lockCanvas(null);
-            canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR);
-            surface.unlockCanvasAndPost(canvas);
+                final Canvas canvas = surface.lockCanvas(null);
+                canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR);
+                surface.unlockCanvasAndPost(canvas);
+            
         } catch (Throwable e) {
             e.printStackTrace();
         }
