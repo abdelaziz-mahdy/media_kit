@@ -14,6 +14,7 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
+import android.view.Choreographer;
 import android.view.Surface;
 import android.view.View;
 import android.widget.FrameLayout;
@@ -30,7 +31,6 @@ import io.flutter.embedding.engine.FlutterEngine;
 import io.flutter.embedding.engine.FlutterJNI;
 import io.flutter.plugin.common.MethodChannel;
 import io.flutter.view.TextureRegistry;
-
 
 public class VideoOutput {
     public long id = 0;
@@ -69,8 +69,7 @@ public class VideoOutput {
             throw new RuntimeException("Failed to initialize com.alexmercerind.media_kit_video.VideoOutput.");
         }
 
-        surfaceProducer =
-            textureRegistryReference.createSurfaceProducer();
+        surfaceProducer = textureRegistryReference.createSurfaceProducer();
         // If we call setOnFrameAvailableListener after creating surfaceProducer, the texture won't be displayed inside Flutter UI, because callback set by us will override the Flutter engine's own registered callback:
         // https://github.com/flutter/engine/blob/f47e864f2dcb9c299a3a3ed22300a1dcacbdf1fe/shell/platform/android/io/flutter/view/FlutterView.java#L942-L958
         try {
@@ -82,8 +81,11 @@ public class VideoOutput {
         }
         Log.i("media_kit", String.format(Locale.ENGLISH, "flutterJNIAPIAvailable = %b", flutterJNIAPIAvailable));
         if (flutterJNIAPIAvailable) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                surfaceProducer.surfaceTexture().setOnFrameAvailableListener((texture) -> {
+            Choreographer choreographer = Choreographer.getInstance();
+
+            choreographer.postFrameCallback(new Choreographer.FrameCallback() {
+                @Override
+                public void doFrame(long frameTimeNanos) {
                     synchronized (lock) {
                         try {
                             if (!waitUntilFirstFrameRenderedNotify) {
@@ -101,32 +103,12 @@ public class VideoOutput {
                             }
                         } catch (Throwable e) {
                             e.printStackTrace();
+                        } finally {
+                            choreographer.postFrameCallback(this); 
                         }
                     }
-                }, new Handler());
-            } else {
-                surfaceProducer.surfaceTexture().setOnFrameAvailableListener((texture) -> {
-                    synchronized (lock) {
-                        try {
-                            if (!waitUntilFirstFrameRenderedNotify) {
-                                waitUntilFirstFrameRenderedNotify = true;
-                                final HashMap<String, Object> data = new HashMap<>();
-                                data.put("handle", handle);
-                                channelReference.invokeMethod("VideoOutput.WaitUntilFirstFrameRenderedNotify", data);
-                                Log.i("media_kit", String.format(Locale.ENGLISH, "VideoOutput.WaitUntilFirstFrameRenderedNotify = %d", handle));
-                            }
-
-                            FlutterJNI flutterJNI = null;
-                            while (flutterJNI == null) {
-                                flutterJNI = getFlutterJNIReference();
-                                flutterJNI.markTextureFrameAvailable(id);
-                            }
-                        } catch (Throwable e) {
-                            e.printStackTrace();
-                        }
-                    }
-                });
-            }
+                }
+            });
         } else {
             if (!waitUntilFirstFrameRenderedNotify) {
                 waitUntilFirstFrameRenderedNotify = true;
